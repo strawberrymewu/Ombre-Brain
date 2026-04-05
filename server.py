@@ -176,6 +176,23 @@ async def breath(
             logger.error(f"Failed to list buckets for surfacing / 浮现列桶失败: {e}")
             return "记忆系统暂时无法访问。"
 
+        # --- Pinned/protected buckets: always surface as core principles ---
+        # --- 钉选桶：作为核心准则，始终浮现 ---
+        pinned_buckets = [
+            b for b in all_buckets
+            if b["metadata"].get("pinned") or b["metadata"].get("protected")
+        ]
+        pinned_results = []
+        for b in pinned_buckets:
+            try:
+                summary = await dehydrator.dehydrate(b["content"], b["metadata"])
+                pinned_results.append(f"📌 [核心准则] {summary}")
+            except Exception as e:
+                logger.warning(f"Failed to dehydrate pinned bucket / 钉选桶脱水失败: {e}")
+                continue
+
+        # --- Unresolved buckets: surface top 2 by weight ---
+        # --- 未解决桶：按权重浮现前 2 条 ---
         unresolved = [
             b for b in all_buckets
             if not b["metadata"].get("resolved", False)
@@ -183,8 +200,6 @@ async def breath(
             and not b["metadata"].get("pinned", False)
             and not b["metadata"].get("protected", False)
         ]
-        if not unresolved:
-            return "权重池平静，没有需要处理的记忆。"
 
         scored = sorted(
             unresolved,
@@ -192,19 +207,26 @@ async def breath(
             reverse=True,
         )
         top = scored[:2]
-        results = []
+        dynamic_results = []
         for b in top:
             try:
                 summary = await dehydrator.dehydrate(b["content"], b["metadata"])
                 await bucket_mgr.touch(b["id"])
                 score = decay_engine.calculate_score(b["metadata"])
-                results.append(f"[权重:{score:.2f}] {summary}")
+                dynamic_results.append(f"[权重:{score:.2f}] {summary}")
             except Exception as e:
                 logger.warning(f"Failed to dehydrate surfaced bucket / 浮现脱水失败: {e}")
                 continue
-        if not results:
+
+        if not pinned_results and not dynamic_results:
             return "权重池平静，没有需要处理的记忆。"
-        return "=== 浮现记忆 ===\n" + "\n---\n".join(results)
+
+        parts = []
+        if pinned_results:
+            parts.append("=== 核心准则 ===\n" + "\n---\n".join(pinned_results))
+        if dynamic_results:
+            parts.append("=== 浮现记忆 ===\n" + "\n---\n".join(dynamic_results))
+        return "\n\n".join(parts)
 
     # --- With args: search mode / 有参数：检索模式 ---
     domain_filter = [d.strip() for d in domain.split(",") if d.strip()] or None
