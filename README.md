@@ -237,9 +237,12 @@ $$base\_score = Importance \times activation\_count^{0.3} \times e^{-\lambda \ti
 
 ### Zeabur
 
+> 💡 **Zeabur 的定价模式**：Zeabur 是「买 VPS + 平台托管」，你先购买一台服务器（最低腾讯云新加坡 $2/mo、火山引擎 $3/mo），Volume 直接挂在该服务器上，**数据天然持久化，无丢失问题**。另需订阅 Zeabur 管理方案（Developer $5/mo），总计约 $7-8/mo 起。
+> **Zeabur pricing model**: You buy a VPS first (cheapest: Tencent Cloud Singapore ~$2/mo, Volcano Engine ~$3/mo), then add Zeabur's Developer plan ($5/mo) for management. Volumes mount directly on your server — **data is always persistent, no cold-start data loss**. Total ~$7-8/mo minimum.
+
 Zeabur 暂不支持直接从 repo URL 一键部署，请手动操作：
 
-1. 打开 [zeabur.com](https://zeabur.com) → **New Project** → **Deploy from GitHub**
+1. 打开 [zeabur.com](https://zeabur.com) → 购买一台服务器 → **New Project** → **Deploy from GitHub**
 2. 选择 `P0lar1zzZ/Ombre-Brain`，Zeabur 会自动识别根目录的 `zbpack.json`
 3. 在 **Variables** 里按需设置：
    - `OMBRE_API_KEY`（可选，OpenAI 兼容 key）
@@ -249,7 +252,7 @@ Zeabur 暂不支持直接从 repo URL 一键部署，请手动操作：
 
 Zeabur doesn't support one-click deploy from a repo URL directly. Manual steps:
 
-1. Go to [zeabur.com](https://zeabur.com) → **New Project** → **Deploy from GitHub**
+1. Go to [zeabur.com](https://zeabur.com) → buy a server → **New Project** → **Deploy from GitHub**
 2. Select `P0lar1zzZ/Ombre-Brain` — Zeabur auto-detects `zbpack.json`
 3. Set variables as needed in **Variables**:
    - `OMBRE_API_KEY` (optional, any OpenAI-compatible key)
