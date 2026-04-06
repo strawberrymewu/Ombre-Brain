@@ -280,6 +280,7 @@ $$base\_score = Importance \times activation\_count^{0.3} \times e^{-\lambda \ti
 | 现象 Symptom | 原因 Cause | 解决 Fix |
 |---|---|---|
 | 域名无法访问 / Domain unreachable | 没配端口 / Port not configured | Networking 标签页加 port 8000 (HTTP) |
+| 域名无法访问 / Domain unreachable | `OMBRE_TRANSPORT` 未设置，服务以 stdio 模式启动，不监听任何端口 / Service started in stdio mode — no port is listened | **Variables 标签页确认设置 `OMBRE_TRANSPORT=streamable-http`，然后重新部署** |
 | 构建失败 / Build failed | Dockerfile 未被识别 / Dockerfile not detected | 确认仓库根目录有 `Dockerfile`（大小写敏感） |
 | 服务启动后立刻退出 | `OMBRE_TRANSPORT` 被覆盖为 `stdio` | 检查 Variables 里有没有多余的 `OMBRE_TRANSPORT=stdio`，删掉即可 |
 | 重启后记忆丢失 / Data lost on restart | Volume 未挂载 | Volumes 标签页挂载到 `/app/buckets` |
