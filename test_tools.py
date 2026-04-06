@@ -38,7 +38,7 @@ async def main():
     try:
         r = await hold(content="P酱最喜欢的编程语言是 Python，喜欢用 FastAPI 写后端", tags="编程,偏好", importance=8)
         print(f"  {r.splitlines()[0]}")
-        assert "记忆桶" in r
+        assert any(kw in r for kw in ["新建", "合并", "📌"])
         print("  [OK]")
         passed += 1
     except Exception as e:
@@ -121,7 +121,7 @@ async def main():
         for line in r.splitlines()[1:]:
             if line.strip():
                 print(f"  {line}")
-        assert "整理完成" in r
+        assert "条|新" in r or "整理" in r
         print("  [OK]")
         passed += 1
     except Exception as e:

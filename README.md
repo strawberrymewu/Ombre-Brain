@@ -285,6 +285,44 @@ $$base\_score = Importance \times activation\_count^{0.3} \times e^{-\lambda \ti
 | 服务启动后立刻退出 | `OMBRE_TRANSPORT` 被覆盖为 `stdio` | 检查 Variables 里有没有多余的 `OMBRE_TRANSPORT=stdio`，删掉即可 |
 | 重启后记忆丢失 / Data lost on restart | Volume 未挂载 | Volumes 标签页挂载到 `/app/buckets` |
 
+### 使用 Cloudflare Tunnel 或 ngrok 连接 / Connecting via Cloudflare Tunnel or ngrok
+
+> ℹ️ 自 v1.1 起，server.py 在 HTTP 模式下已自动添加 CORS 中间件，无需额外配置。
+> Since v1.1, server.py automatically enables CORS middleware in HTTP mode — no extra config needed.
+
+使用隧道连接时，确保以下条件满足：
+When connecting via tunnel, ensure:
+
+1. **服务器必须运行在 HTTP 模式** / Server must use HTTP transport
+   ```bash
+   OMBRE_TRANSPORT=streamable-http python server.py
+   ```
+   或 Docker：
+   ```bash
+   docker-compose up -d
+   ```
+
+2. **在 Claude.ai 网页版添加 MCP 服务器** / Adding to Claude.ai web
+   - URL 格式 / URL format: `https://<tunnel-subdomain>.trycloudflare.com/mcp`
+   - 或 ngrok / or ngrok: `https://<xxxx>.ngrok-free.app/mcp`
+   - 先访问 `/health` 验证连接 / Verify first: `https://<your-tunnel>/health` should return `{"status":"ok",...}`
+
+3. **已知限制 / Known limitations**
+   - Cloudflare Tunnel 免费版有空闲超时（约 10 分钟），系统内置保活 ping 可缓解但不能完全消除
+   - Free Cloudflare Tunnel has idle timeout (~10 min); built-in keepalive pings mitigate but can't fully prevent it
+   - ngrok 免费版有请求速率限制 / ngrok free tier has rate limits
+   - 如果连接仍失败，检查隧道是否正在运行、服务是否以 `streamable-http` 模式启动
+   - If connection still fails, verify the tunnel is running and the server started in `streamable-http` mode
+
+| 现象 Symptom | 原因 Cause | 解决 Fix |
+|---|---|---|
+| 网页版无法连接隧道 URL / Web can't connect to tunnel URL | 服务以 stdio 模式运行 / Server in stdio mode | 设置 `OMBRE_TRANSPORT=streamable-http` 后重启 |
+| 网页版无法连接隧道 URL / Web can't connect to tunnel URL | 旧版 server.py 缺少 CORS 头 / Missing CORS headers | 拉取最新代码，CORS 已内置 / Pull latest — CORS is now built-in |
+| `/health` 返回 200 但 MCP 连不上 / `/health` 200 but MCP fails | 路径错误 / Wrong path | MCP URL 末尾必须是 `/mcp` 而非 `/` |
+| 隧道连接偶尔断开 / Tunnel disconnects intermittently | Cloudflare Tunnel 空闲超时 / Idle timeout | 保活 ping 已内置，若仍断开可缩短隧道超时配置 |
+
+---
+
 ### Session Start Hook（自动 breath）
 
 部署后，如果你使用 Claude Code，可以在项目内激活自动浮现 hook：

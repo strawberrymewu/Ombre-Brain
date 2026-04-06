@@ -36,6 +36,7 @@ import random
 import logging
 import asyncio
 import httpx
+from typing import Optional
 
 # --- Ensure same-directory modules can be imported ---
 # --- 确保同目录下的模块能被正确导入 ---
@@ -158,18 +159,18 @@ async def _merge_or_create(
 # =============================================================
 @mcp.tool()
 async def breath(
-    query: str = "",
+    query: Optional[str] = None,
     max_results: int = 3,
     domain: str = "",
     valence: float = -1,
     arousal: float = -1,
 ) -> str:
-    """检索/浮现记忆。空query=自动浮现,有query=关键词检索。domain逗号分隔,valence/arousal 0~1(-1忽略)。"""
+    """检索/浮现记忆。不传query或传空=自动浮现,有query=关键词检索。domain逗号分隔,valence/arousal 0~1(-1忽略)。"""
     await decay_engine.ensure_started()
 
-    # --- No args: surfacing mode (weight pool active push) ---
-    # --- 无参数：浮现模式（权重池主动推送）---
-    if not query.strip():
+    # --- No args or empty query: surfacing mode (weight pool active push) ---
+    # --- 无参数或空query：浮现模式（权重池主动推送）---
+    if not query or not query.strip():
         try:
             all_buckets = await bucket_mgr.list_all(include_archive=False)
         except Exception as e:
@@ -321,8 +322,8 @@ async def hold(
 
     all_tags = list(dict.fromkeys(auto_tags + extra_tags))
 
-    # --- Pinned buckets bypass merge and are created directly ---
-    # --- 钉选桶跳过合并，直接新建 ---
+    # --- Pinned buckets bypass merge and are created directly in permanent dir ---
+    # --- 钉选桶跳过合并，直接新建到 permanent 目录 ---
     if pinned:
         bucket_id = await bucket_mgr.create(
             content=content,
@@ -332,6 +333,7 @@ async def hold(
             valence=valence,
             arousal=arousal,
             name=suggested_name or None,
+            bucket_type="permanent",
             pinned=True,
         )
         return f"📌钉选→{bucket_id} {','.join(domain)}"
@@ -574,10 +576,13 @@ if __name__ == "__main__":
     transport = config.get("transport", "stdio")
     logger.info(f"Ombre Brain starting | transport: {transport}")
 
-    # --- Application-level keepalive: remote mode only, ping /health every 60s ---
-    # --- 应用层保活：仅远程模式下启动，每 60 秒 ping 一次 /health ---
-    # Prevents Cloudflare Tunnel from dropping idle connections
     if transport in ("sse", "streamable-http"):
+        import threading
+        import uvicorn
+        from starlette.middleware.cors import CORSMiddleware
+
+        # --- Application-level keepalive: ping /health every 60s ---
+        # --- 应用层保活：每 60 秒 ping 一次 /health，防止 Cloudflare Tunnel 空闲断连 ---
         async def _keepalive_loop():
             await asyncio.sleep(10)  # Wait for server to fully start
             async with httpx.AsyncClient() as client:
@@ -589,8 +594,6 @@ if __name__ == "__main__":
                         logger.warning(f"Keepalive ping failed / 保活 ping 失败: {e}")
                     await asyncio.sleep(60)
 
-        import threading
-
         def _start_keepalive():
             loop = asyncio.new_event_loop()
             loop.run_until_complete(_keepalive_loop())
@@ -598,4 +601,20 @@ if __name__ == "__main__":
         t = threading.Thread(target=_start_keepalive, daemon=True)
         t.start()
 
-    mcp.run(transport=transport)
+        # --- Add CORS middleware so remote clients (Cloudflare Tunnel / ngrok) can connect ---
+        # --- 添加 CORS 中间件，让远程客户端（Cloudflare Tunnel / ngrok）能正常连接 ---
+        if transport == "streamable-http":
+            _app = mcp.streamable_http_app()
+        else:
+            _app = mcp.sse_app()
+        _app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+            expose_headers=["*"],
+        )
+        logger.info("CORS middleware enabled for remote transport / 已启用 CORS 中间件")
+        uvicorn.run(_app, host="0.0.0.0", port=8000)
+    else:
+        mcp.run(transport=transport)
