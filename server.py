@@ -90,6 +90,101 @@ async def health_check(request):
 
 
 # =============================================================
+# OAuth 2.0 endpoints for Claude.ai Connector
+# =============================================================
+import hashlib
+import time
+from starlette.responses import HTMLResponse, RedirectResponse
+
+OAUTH_PASSWORD = os.environ.get("OAUTH_PASSWORD", "charlie2026")
+OAUTH_ACCESS_TOKEN = os.environ.get("OAUTH_ACCESS_TOKEN", "charlie-ombre-token-" + hashlib.md5(OAUTH_PASSWORD.encode()).hexdigest()[:16])
+_auth_codes = {}
+
+
+@mcp.custom_route("/oauth/authorize", methods=["GET"])
+async def oauth_authorize(request):
+    params = request.query_params
+    client_id = params.get("client_id", "")
+    redirect_uri = params.get("redirect_uri", "")
+    state = params.get("state", "")
+    scope = params.get("scope", "")
+
+    password = params.get("password", "")
+    if password == OAUTH_PASSWORD:
+        code = hashlib.sha256(f"{time.time()}{state}".encode()).hexdigest()[:32]
+        _auth_codes[code] = {"redirect_uri": redirect_uri, "expires": time.time() + 300}
+        sep = "&" if "?" in redirect_uri else "?"
+        return RedirectResponse(f"{redirect_uri}{sep}code={code}&state={state}")
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Charlie - 授权</title>
+<style>body{{font-family:system-ui;max-width:400px;margin:80px auto;padding:20px;background:#0f0f0f;color:#e8e8e8}}
+h1{{font-weight:300}}input{{width:100%;padding:10px;margin:10px 0;border-radius:6px;border:1px solid #333;background:#1a1a1a;color:#e8e8e8}}
+button{{width:100%;padding:10px;border-radius:6px;border:none;background:#e8e8e8;color:#0f0f0f;cursor:pointer;font-size:1rem}}</style></head>
+<body><h1>Charlie</h1><p>允许 Claude.ai 连接记忆系统？</p>
+<form method="GET" action="/oauth/authorize">
+<input type="hidden" name="client_id" value="{client_id}">
+<input type="hidden" name="redirect_uri" value="{redirect_uri}">
+<input type="hidden" name="state" value="{state}">
+<input type="hidden" name="scope" value="{scope}">
+<input type="password" name="password" placeholder="输入密码" autofocus>
+<button type="submit">允许连接</button></form></body></html>"""
+    return HTMLResponse(html)
+
+
+@mcp.custom_route("/oauth/token", methods=["POST"])
+async def oauth_token(request):
+    from urllib.parse import parse_qs
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    if not body:
+        body_bytes = await request.body()
+        parsed = parse_qs(body_bytes.decode())
+        body = {k: v[0] for k, v in parsed.items()}
+
+    code = body.get("code", "")
+    grant_type = body.get("grant_type", "")
+
+    if grant_type == "authorization_code" and code in _auth_codes:
+        code_data = _auth_codes.pop(code)
+        if time.time() < code_data["expires"]:
+            return JSONResponse({
+                "access_token": OAUTH_ACCESS_TOKEN,
+                "token_type": "bearer",
+                "expires_in": 31536000,
+            })
+
+    if grant_type == "refresh_token":
+        return JSONResponse({
+            "access_token": OAUTH_ACCESS_TOKEN,
+            "token_type": "bearer",
+            "expires_in": 31536000,
+        })
+
+    return JSONResponse({"error": "invalid_grant"}, status_code=400)
+
+
+@mcp.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])
+async def oauth_metadata(request):
+    base = str(request.base_url).rstrip("/")
+    return JSONResponse({
+        "issuer": base,
+        "authorization_endpoint": f"{base}/oauth/authorize",
+        "token_endpoint": f"{base}/oauth/token",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported": ["S256"],
+    })
+
+
+# =============================================================
+# Internal helper: merge-or-create
+
+
+# =============================================================
 # Internal helper: merge-or-create
 # 内部辅助：检查是否可合并，可以则合并，否则新建
 # Shared by hold and grow to avoid duplicate logic
