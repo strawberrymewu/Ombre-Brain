@@ -275,25 +275,6 @@ async def mcp_discovery(request):
     })
 
 
-@mcp.custom_route("/mcp", methods=["POST"])
-async def mcp_unauthorized(request):
-    """未携带 token 时触发 OAuth discovery — 返回 401 + WWW-Authenticate"""
-    auth = request.headers.get("authorization", "")
-    if auth.startswith("Bearer ") and auth[7:].strip() == OAUTH_ACCESS_TOKEN:
-        # 有效 token：FastMCP streamable-http 处理带尾部斜杠的路径，这里只做 redirect
-        from starlette.responses import Response
-        return Response(status_code=307, headers={"Location": "/mcp/"})
-
-    base = _base_url(request)
-    resource_metadata_url = f"{base}/.well-known/oauth-protected-resource/mcp"
-    from starlette.responses import Response
-    return Response(
-        status_code=401,
-        headers={
-            "WWW-Authenticate": f'Bearer resource_metadata="{resource_metadata_url}"',
-        },
-    )
-    
 
 
 # =============================================================
