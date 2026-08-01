@@ -261,19 +261,9 @@ async def oauth_token(request):
 
 # =============================================================
 # /mcp GET — MCP discovery / 健康检查
-# /mcp POST 无 token — 返回 401 + WWW-Authenticate 触发 OAuth discovery
-# FastMCP 会接管带 token 的 POST /mcp/ (streamable-http)
-# =============================================================
-@mcp.custom_route("/mcp", methods=["GET"])
-async def mcp_discovery(request):
-    base = _base_url(request)
-    return JSONResponse({
-        "name": "Ombre Brain",
-        "version": "1.8.1",
-        "protocol": "mcp",
-        "transport": "streamable-http",
-        "resource_metadata": f"{base}/.well-known/oauth-protected-resource/mcp",
-    })
+# Note: FastMCP mounts its streamable-http handler at /mcp (via Mount prefix match)
+# DO NOT register a custom_route for /mcp GET as it conflicts with FastMCP's routing
+# The GET /mcp is handled by the health endpoint instead
 
 
 
