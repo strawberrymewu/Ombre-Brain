@@ -170,6 +170,9 @@ async def oauth_token(request):
 @mcp.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])
 async def oauth_metadata(request):
     base = str(request.base_url).rstrip("/")
+    # Railway sits behind a TLS-terminating proxy; base_url comes in as http://.
+    # Claude.ai rejects non-HTTPS issuers, so force https here.
+    base = base.replace("http://", "https://", 1)
     return JSONResponse({
         "issuer": base,
         "authorization_endpoint": f"{base}/oauth/authorize",
