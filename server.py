@@ -789,6 +789,34 @@ if __name__ == "__main__":
             _app = mcp.streamable_http_app()
         else:
             _app = mcp.sse_app()
+
+        # Middleware: fix http:// -> https:// in redirect Location headers (Railway TLS proxy)
+        from starlette.types import ASGIApp, Scope, Receive, Send as StarletteSend
+
+        class HttpsRedirectFixMiddleware:
+            """Railway 在 TLS 代理后，内部重定向 Location 头是 http://，强制改成 https://"""
+            def __init__(self, app: ASGIApp):
+                self.app = app
+
+            async def __call__(self, scope: Scope, receive: Receive, send: StarletteSend):
+                if scope["type"] != "http":
+                    await self.app(scope, receive, send)
+                    return
+
+                async def send_with_https(message):
+                    if message["type"] == "http.response.start":
+                        headers = list(message.get("headers", []))
+                        new_headers = []
+                        for name, value in headers:
+                            if name.lower() == b"location":
+                                value = value.replace(b"http://", b"https://", 1)
+                            new_headers.append((name, value))
+                        message = {**message, "headers": new_headers}
+                    await send(message)
+
+                await self.app(scope, receive, send_with_https)
+
+        _app.add_middleware(HttpsRedirectFixMiddleware)
         _app.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
