@@ -174,10 +174,33 @@ async def oauth_metadata(request):
         "issuer": base,
         "authorization_endpoint": f"{base}/oauth/authorize",
         "token_endpoint": f"{base}/oauth/token",
+        "registration_endpoint": f"{base}/register",
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code", "refresh_token"],
         "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"],
     })
+
+
+@mcp.custom_route("/register", methods=["POST"])
+async def oauth_register(request):
+    """RFC 7591 Dynamic Client Registration — Claude.ai 连接前会先 POST 这里"""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    client_name = body.get("client_name", "claude-ai")
+    redirect_uris = body.get("redirect_uris", [])
+
+    return JSONResponse({
+        "client_id": f"claude-{hashlib.md5(client_name.encode()).hexdigest()[:12]}",
+        "client_name": client_name,
+        "redirect_uris": redirect_uris,
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+    }, status_code=201)
 
 @mcp.custom_route("/mcp", methods=["GET"])
 async def mcp_discovery(request):
