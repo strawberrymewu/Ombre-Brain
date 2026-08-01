@@ -492,6 +492,8 @@ async def breath(
         return "未找到相关记忆。"
 
     return "\n---\n".join(results)
+
+@mcp.tool()
 async def hold(
     content: str,
     tags: str = "",
