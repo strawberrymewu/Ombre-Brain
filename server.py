@@ -205,6 +205,23 @@ async def oauth_register(request):
         "token_endpoint_auth_method": "none",
     }, status_code=201)
 
+@mcp.custom_route("/.well-known/oauth-authorization-server/mcp", methods=["GET"])
+async def oauth_metadata_with_path(request):
+    """RFC 8414 path-specific discovery — Claude.ai looks here when Connector URL has /mcp path"""
+    base = str(request.base_url).rstrip("/")
+    base = base.replace("http://", "https://", 1)
+    return JSONResponse({
+        "issuer": base,
+        "authorization_endpoint": f"{base}/oauth/authorize",
+        "token_endpoint": f"{base}/oauth/token",
+        "registration_endpoint": f"{base}/register",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"],
+    })
+
+
 @mcp.custom_route("/mcp", methods=["GET"])
 async def mcp_discovery(request):
     return JSONResponse({
