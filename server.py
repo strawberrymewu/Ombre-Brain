@@ -179,6 +179,16 @@ async def oauth_metadata(request):
         "code_challenge_methods_supported": ["S256"],
     })
 
+@mcp.custom_route("/mcp", methods=["GET"])
+async def mcp_discovery(request):
+    return JSONResponse({
+        "name": "Ombre Brain",
+        "version": "1.8.1",
+        "protocol": "mcp",
+        "transport": "streamable-http",
+    })
+    
+
 
 # =============================================================
 # Internal helper: merge-or-create
