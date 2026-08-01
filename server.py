@@ -101,6 +101,90 @@ OAUTH_ACCESS_TOKEN = os.environ.get("OAUTH_ACCESS_TOKEN", "charlie-ombre-token-"
 _auth_codes = {}
 
 
+def _base_url(request) -> str:
+    """Railway 在 TLS 代理后，request.base_url 是 http://，强制转 https"""
+    base = str(request.base_url).rstrip("/")
+    return base.replace("http://", "https://", 1)
+
+
+def _as_metadata(base: str) -> dict:
+    return {
+        "issuer": base,
+        "authorization_endpoint": f"{base}/oauth/authorize",
+        "token_endpoint": f"{base}/oauth/token",
+        "registration_endpoint": f"{base}/oauth/register",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"],
+    }
+
+
+# =============================================================
+# RFC 9728 — Protected Resource Metadata
+# Claude.ai 的第一个 discovery 请求，在 WWW-Authenticate 触发后到达这里
+# 两个路径都注册：带 /mcp 后缀（RFC 9728 path-specific）和不带（兜底）
+# =============================================================
+@mcp.custom_route("/.well-known/oauth-protected-resource/mcp", methods=["GET"])
+async def protected_resource_metadata_mcp(request):
+    base = _base_url(request)
+    return JSONResponse({
+        "resource": f"{base}/mcp",
+        "authorization_servers": [base],
+    })
+
+
+@mcp.custom_route("/.well-known/oauth-protected-resource", methods=["GET"])
+async def protected_resource_metadata(request):
+    base = _base_url(request)
+    return JSONResponse({
+        "resource": f"{base}/mcp",
+        "authorization_servers": [base],
+    })
+
+
+# =============================================================
+# RFC 8414 — Authorization Server Metadata
+# 两个路径都注册：带 /mcp 后缀（RFC 8414 path-specific）和不带（标准位置）
+# =============================================================
+@mcp.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])
+async def oauth_metadata(request):
+    return JSONResponse(_as_metadata(_base_url(request)))
+
+
+@mcp.custom_route("/.well-known/oauth-authorization-server/mcp", methods=["GET"])
+async def oauth_metadata_path(request):
+    """RFC 8414 path-specific — Connector URL 带 /mcp 时 Claude.ai 找这里"""
+    return JSONResponse(_as_metadata(_base_url(request)))
+
+
+# =============================================================
+# RFC 7591 — Dynamic Client Registration
+# Claude.ai 在走 OAuth 之前先来这里注册自己
+# =============================================================
+@mcp.custom_route("/oauth/register", methods=["POST"])
+async def oauth_register(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    client_name = body.get("client_name", "claude-ai")
+    redirect_uris = body.get("redirect_uris", [])
+
+    return JSONResponse({
+        "client_id": f"claude-{hashlib.md5(client_name.encode()).hexdigest()[:12]}",
+        "client_name": client_name,
+        "redirect_uris": redirect_uris,
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+    }, status_code=201)
+
+
+# =============================================================
+# OAuth /authorize — 展示密码页，用户同意后重定向回 Claude.ai
+# =============================================================
 @mcp.custom_route("/oauth/authorize", methods=["GET"])
 async def oauth_authorize(request):
     params = request.query_params
@@ -114,7 +198,8 @@ async def oauth_authorize(request):
         code = hashlib.sha256(f"{time.time()}{state}".encode()).hexdigest()[:32]
         _auth_codes[code] = {"redirect_uri": redirect_uri, "expires": time.time() + 300}
         sep = "&" if "?" in redirect_uri else "?"
-        return RedirectResponse(f"{redirect_uri}{sep}code={code}&state={state}")
+        # 303 See Other — 防止浏览器用 POST 方法重放重定向（307 会保留 POST 导致 405）
+        return RedirectResponse(f"{redirect_uri}{sep}code={code}&state={state}", status_code=303)
 
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Charlie - 授权</title>
@@ -132,6 +217,10 @@ button{{width:100%;padding:10px;border-radius:6px;border:none;background:#e8e8e8
     return HTMLResponse(html)
 
 
+# =============================================================
+# OAuth /token — authorization_code 换 access_token
+# 必须同时接受 JSON 和 application/x-www-form-urlencoded（RFC 6749 要求）
+# =============================================================
 @mcp.custom_route("/oauth/token", methods=["POST"])
 async def oauth_token(request):
     from urllib.parse import parse_qs
@@ -153,83 +242,57 @@ async def oauth_token(request):
         if time.time() < code_data["expires"]:
             return JSONResponse({
                 "access_token": OAUTH_ACCESS_TOKEN,
-                "token_type": "bearer",
+                "token_type": "Bearer",
                 "expires_in": 31536000,
+                "refresh_token": OAUTH_ACCESS_TOKEN + "-refresh",
             })
 
     if grant_type == "refresh_token":
         return JSONResponse({
             "access_token": OAUTH_ACCESS_TOKEN,
-            "token_type": "bearer",
+            "token_type": "Bearer",
             "expires_in": 31536000,
+            "refresh_token": OAUTH_ACCESS_TOKEN + "-refresh",
         })
 
     return JSONResponse({"error": "invalid_grant"}, status_code=400)
 
 
-@mcp.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])
-async def oauth_metadata(request):
-    base = str(request.base_url).rstrip("/")
-    # Railway sits behind a TLS-terminating proxy; base_url comes in as http://.
-    # Claude.ai rejects non-HTTPS issuers, so force https here.
-    base = base.replace("http://", "https://", 1)
-    return JSONResponse({
-        "issuer": base,
-        "authorization_endpoint": f"{base}/oauth/authorize",
-        "token_endpoint": f"{base}/oauth/token",
-        "registration_endpoint": f"{base}/register",
-        "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
-        "code_challenge_methods_supported": ["S256"],
-        "token_endpoint_auth_methods_supported": ["none"],
-    })
-
-
-@mcp.custom_route("/register", methods=["POST"])
-async def oauth_register(request):
-    """RFC 7591 Dynamic Client Registration — Claude.ai 连接前会先 POST 这里"""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-
-    client_name = body.get("client_name", "claude-ai")
-    redirect_uris = body.get("redirect_uris", [])
-
-    return JSONResponse({
-        "client_id": f"claude-{hashlib.md5(client_name.encode()).hexdigest()[:12]}",
-        "client_name": client_name,
-        "redirect_uris": redirect_uris,
-        "grant_types": ["authorization_code", "refresh_token"],
-        "response_types": ["code"],
-        "token_endpoint_auth_method": "none",
-    }, status_code=201)
-
-@mcp.custom_route("/.well-known/oauth-authorization-server/mcp", methods=["GET"])
-async def oauth_metadata_with_path(request):
-    """RFC 8414 path-specific discovery — Claude.ai looks here when Connector URL has /mcp path"""
-    base = str(request.base_url).rstrip("/")
-    base = base.replace("http://", "https://", 1)
-    return JSONResponse({
-        "issuer": base,
-        "authorization_endpoint": f"{base}/oauth/authorize",
-        "token_endpoint": f"{base}/oauth/token",
-        "registration_endpoint": f"{base}/register",
-        "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
-        "code_challenge_methods_supported": ["S256"],
-        "token_endpoint_auth_methods_supported": ["none"],
-    })
-
-
+# =============================================================
+# /mcp GET — MCP discovery / 健康检查
+# /mcp POST 无 token — 返回 401 + WWW-Authenticate 触发 OAuth discovery
+# FastMCP 会接管带 token 的 POST /mcp/ (streamable-http)
+# =============================================================
 @mcp.custom_route("/mcp", methods=["GET"])
 async def mcp_discovery(request):
+    base = _base_url(request)
     return JSONResponse({
         "name": "Ombre Brain",
         "version": "1.8.1",
         "protocol": "mcp",
         "transport": "streamable-http",
+        "resource_metadata": f"{base}/.well-known/oauth-protected-resource/mcp",
     })
+
+
+@mcp.custom_route("/mcp", methods=["POST"])
+async def mcp_unauthorized(request):
+    """未携带 token 时触发 OAuth discovery — 返回 401 + WWW-Authenticate"""
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer ") and auth[7:].strip() == OAUTH_ACCESS_TOKEN:
+        # 有效 token：FastMCP streamable-http 处理带尾部斜杠的路径，这里只做 redirect
+        from starlette.responses import Response
+        return Response(status_code=307, headers={"Location": "/mcp/"})
+
+    base = _base_url(request)
+    resource_metadata_url = f"{base}/.well-known/oauth-protected-resource/mcp"
+    from starlette.responses import Response
+    return Response(
+        status_code=401,
+        headers={
+            "WWW-Authenticate": f'Bearer resource_metadata="{resource_metadata_url}"',
+        },
+    )
     
 
 
