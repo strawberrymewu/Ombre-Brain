@@ -166,19 +166,18 @@ async def breath(
     arousal: float = -1,
 ) -> str:
     """检索/浮现记忆。不传query或传空=自动浮现,有query=关键词检索。domain逗号分隔,valence/arousal 0~1(-1忽略)。"""
-    await decay_engine.ensure_started()
+    try:
+        await decay_engine.ensure_started()
+    except Exception as e:
+        logger.warning(f"Decay engine start failed, continuing: {e}")
 
-    # --- No args or empty query: surfacing mode (weight pool active push) ---
-    # --- 无参数或空query：浮现模式（权重池主动推送）---
     if not query or not query.strip():
         try:
             all_buckets = await bucket_mgr.list_all(include_archive=False)
         except Exception as e:
-            logger.error(f"Failed to list buckets for surfacing / 浮现列桶失败: {e}")
+            logger.error(f"Failed to list buckets for surfacing: {e}")
             return "记忆系统暂时无法访问。"
 
-        # --- Pinned/protected buckets: always surface as core principles ---
-        # --- 钉选桶：作为核心准则，始终浮现 ---
         pinned_buckets = [
             b for b in all_buckets
             if b["metadata"].get("pinned") or b["metadata"].get("protected")
@@ -187,13 +186,10 @@ async def breath(
         for b in pinned_buckets:
             try:
                 summary = await dehydrator.dehydrate(b["content"], b["metadata"])
-                pinned_results.append(f"📌 [核心准则] {summary}")
-            except Exception as e:
-                logger.warning(f"Failed to dehydrate pinned bucket / 钉选桶脱水失败: {e}")
-                continue
+            except Exception:
+                summary = b["content"][:150]
+            pinned_results.append(f"📌 [核心准则] {summary}")
 
-        # --- Unresolved buckets: surface top 2 by weight ---
-        # --- 未解决桶：按权重浮现前 2 条 ---
         unresolved = [
             b for b in all_buckets
             if not b["metadata"].get("resolved", False)
@@ -212,12 +208,14 @@ async def breath(
         for b in top:
             try:
                 summary = await dehydrator.dehydrate(b["content"], b["metadata"])
+            except Exception:
+                summary = b["content"][:150]
+            try:
                 await bucket_mgr.touch(b["id"])
-                score = decay_engine.calculate_score(b["metadata"])
-                dynamic_results.append(f"[权重:{score:.2f}] {summary}")
-            except Exception as e:
-                logger.warning(f"Failed to dehydrate surfaced bucket / 浮现脱水失败: {e}")
-                continue
+            except Exception:
+                pass
+            score = decay_engine.calculate_score(b["metadata"])
+            dynamic_results.append(f"[权重:{score:.2f}] {summary}")
 
         if not pinned_results and not dynamic_results:
             return "权重池平静，没有需要处理的记忆。"
@@ -229,7 +227,6 @@ async def breath(
             parts.append("=== 浮现记忆 ===\n" + "\n---\n".join(dynamic_results))
         return "\n\n".join(parts)
 
-    # --- With args: search mode / 有参数：检索模式 ---
     domain_filter = [d.strip() for d in domain.split(",") if d.strip()] or None
     q_valence = valence if 0 <= valence <= 1 else None
     q_arousal = arousal if 0 <= arousal <= 1 else None
@@ -243,21 +240,21 @@ async def breath(
             query_arousal=q_arousal,
         )
     except Exception as e:
-        logger.error(f"Search failed / 检索失败: {e}")
+        logger.error(f"Search failed: {e}")
         return "检索过程出错，请稍后重试。"
 
     results = []
     for bucket in matches:
         try:
             summary = await dehydrator.dehydrate(bucket["content"], bucket["metadata"])
+        except Exception:
+            summary = bucket["content"][:150]
+        try:
             await bucket_mgr.touch(bucket["id"])
-            results.append(summary)
-        except Exception as e:
-            logger.warning(f"Failed to dehydrate search result / 检索结果脱水失败: {e}")
-            continue
+        except Exception:
+            pass
+        results.append(summary)
 
-    # --- Random surfacing: when search returns < 3, 40% chance to float old memories ---
-    # --- 随机浮现：检索结果不足 3 条时，40% 概率从低权重旧桶里漂上来 ---
     if len(matches) < 3 and random.random() < 0.4:
         try:
             all_buckets = await bucket_mgr.list_all(include_archive=False)
@@ -271,23 +268,19 @@ async def breath(
                 drifted = random.sample(low_weight, min(random.randint(1, 3), len(low_weight)))
                 drift_results = []
                 for b in drifted:
-                    summary = await dehydrator.dehydrate(b["content"], b["metadata"])
+                    try:
+                        summary = await dehydrator.dehydrate(b["content"], b["metadata"])
+                    except Exception:
+                        summary = b["content"][:150]
                     drift_results.append(f"[surface_type: random]\n{summary}")
                 results.append("--- 忽然想起来 ---\n" + "\n---\n".join(drift_results))
         except Exception as e:
-            logger.warning(f"Random surfacing failed / 随机浮现失败: {e}")
+            logger.warning(f"Random surfacing failed: {e}")
 
     if not results:
         return "未找到相关记忆。"
 
     return "\n---\n".join(results)
-
-
-# =============================================================
-# Tool 2: hold — Hold on to this
-# 工具 2：hold — 握住，留下来
-# =============================================================
-@mcp.tool()
 async def hold(
     content: str,
     tags: str = "",
@@ -516,10 +509,14 @@ async def trace(
 async def pulse(include_archive: bool = False) -> str:
     """系统状态+记忆桶列表。include_archive=True含归档。"""
     try:
+        await decay_engine.ensure_started()
+    except Exception:
+        pass
+    try:
         stats = await bucket_mgr.get_stats()
     except Exception as e:
         return f"获取系统状态失败: {e}"
-
+        
     status = (
         f"=== Ombre Brain 记忆系统 ===\n"
         f"固化记忆桶: {stats['permanent_count']} 个\n"
