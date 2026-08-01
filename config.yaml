@@ -2,8 +2,8 @@ transport: "streamable-http"
 log_level: "INFO"
 merge_threshold: 75
 dehydration:
-  model: "deepseek/deepseek-chat"
-  base_url: "https://openrouter.ai/api/v1"
+  model: "claude-sonnet-4-5-20250929"
+  base_url: "https://code.newcli.com/claude/v1"
   max_tokens: 1024
   temperature: 0.1
 decay:
