@@ -1,5 +1,5 @@
 # Ombre Brain Python 依赖
-mcp[cli]==1.8.1
+mcp[cli]>=1.9.0
 rapidfuzz>=3.0.0
 openai>=1.0.0
 pyyaml>=6.0
