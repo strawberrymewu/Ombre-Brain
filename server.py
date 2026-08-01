@@ -94,7 +94,7 @@ async def health_check(request):
 # =============================================================
 import hashlib
 import time
-from starlette.responses import HTMLResponse, RedirectResponse
+from starlette.responses import HTMLResponse, RedirectResponse, JSONResponse
 
 OAUTH_PASSWORD = os.environ.get("OAUTH_PASSWORD", "charlie2026")
 OAUTH_ACCESS_TOKEN = os.environ.get("OAUTH_ACCESS_TOKEN", "charlie-ombre-token-" + hashlib.md5(OAUTH_PASSWORD.encode()).hexdigest()[:16])
