@@ -149,8 +149,9 @@ class Dehydrator:
 
     def __init__(self, config: dict):
         # --- Read dehydration API config / 读取脱水 API 配置 ---
+        import os
         dehy_cfg = config.get("dehydration", {})
-        self.api_key = dehy_cfg.get("api_key", "")
+        self.api_key = dehy_cfg.get("api_key", "") or os.environ.get("OMBRE_API_KEY", "")
         self.model = dehy_cfg.get("model", "deepseek-chat")
         self.base_url = dehy_cfg.get("base_url", "https://api.deepseek.com/v1")
         self.max_tokens = dehy_cfg.get("max_tokens", 1024)
