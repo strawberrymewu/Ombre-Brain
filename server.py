@@ -35,6 +35,7 @@ import sys
 import random
 import logging
 import asyncio
+import json
 import httpx
 from typing import Optional
 
@@ -751,6 +752,42 @@ async def pulse(include_archive: bool = False) -> str:
         )
 
     return status + "\n=== 记忆列表 ===\n" + "\n".join(lines)
+
+
+# =============================================================
+# Tool 6: memory_list — Structured memory list for client views
+# 工具 6：memory_list — 为客户端视图提供结构化记忆列表
+# =============================================================
+@mcp.tool()
+async def memory_list(include_archive: bool = True) -> str:
+    """返回按固化、动态、归档分类的记忆正文与主题。"""
+    try:
+        buckets = await bucket_mgr.list_all(include_archive=include_archive)
+    except Exception as e:
+        return json.dumps({"items": [], "error": str(e)}, ensure_ascii=False)
+
+    items = []
+    for bucket in buckets:
+        metadata = bucket.get("metadata", {})
+        if metadata.get("pinned") or metadata.get("protected"):
+            category = "固化"
+        elif metadata.get("type") == "permanent":
+            category = "固化"
+        elif metadata.get("type") == "archived":
+            category = "归档"
+        else:
+            category = "动态"
+
+        domains = metadata.get("domain", [])
+        if isinstance(domains, str):
+            domains = [domains] if domains.strip() else []
+        items.append({
+            "category": category,
+            "domains": [str(domain) for domain in domains],
+            "content": bucket.get("content", ""),
+        })
+
+    return json.dumps({"items": items}, ensure_ascii=False)
 
 
 # --- Entry point / 启动入口 ---
