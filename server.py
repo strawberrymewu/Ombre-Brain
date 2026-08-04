@@ -759,10 +759,13 @@ async def pulse(include_archive: bool = False) -> str:
 # 工具 6：memory_list — 为客户端视图提供结构化记忆列表
 # =============================================================
 @mcp.tool()
-async def memory_list(include_archive: bool = True) -> str:
+async def memory_list(category: str = "", include_archive: bool = True) -> str:
     """返回按固化、动态、归档分类的记忆正文与主题。"""
     try:
-        buckets = await bucket_mgr.list_all(include_archive=include_archive)
+        buckets = await bucket_mgr.list_all(
+            include_archive=include_archive,
+            category=category,
+        )
     except Exception as e:
         return json.dumps({"items": [], "error": str(e)}, ensure_ascii=False)
 

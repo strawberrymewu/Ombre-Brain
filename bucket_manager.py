@@ -625,16 +625,28 @@ class BucketManager:
     # List all buckets
     # 列出所有桶
     # ---------------------------------------------------------
-    async def list_all(self, include_archive: bool = False) -> list[dict]:
+    async def list_all(
+        self,
+        include_archive: bool = False,
+        category: str = "",
+    ) -> list[dict]:
         """
         Recursively walk directories (including domain subdirs), list all buckets.
         递归遍历目录（含域子目录），列出所有记忆桶。
         """
         buckets = []
 
-        dirs = [self.permanent_dir, self.dynamic_dir]
-        if include_archive:
-            dirs.append(self.archive_dir)
+        category_dirs = {
+            "permanent": [self.permanent_dir],
+            "dynamic": [self.dynamic_dir],
+            "archive": [self.archive_dir],
+        }
+        if category in category_dirs:
+            dirs = category_dirs[category]
+        else:
+            dirs = [self.permanent_dir, self.dynamic_dir]
+            if include_archive:
+                dirs.append(self.archive_dir)
 
         for dir_path in dirs:
             if not os.path.exists(dir_path):
