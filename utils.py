@@ -90,6 +90,10 @@ def load_config(config_path: str = None) -> dict:
     if env_base_url:
         config.setdefault("dehydration", {})["base_url"] = env_base_url
 
+    env_model = os.environ.get("OMBRE_MODEL", "")
+    if env_model:
+        config.setdefault("dehydration", {})["model"] = env_model
+
     env_transport = os.environ.get("OMBRE_TRANSPORT", "")
     if env_transport:
         config["transport"] = env_transport

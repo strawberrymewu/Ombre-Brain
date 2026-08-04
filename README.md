@@ -226,14 +226,16 @@ $$base\_score = Importance \times activation\_count^{0.3} \times e^{-\lambda \ti
 项目根目录已包含 `render.yaml`，点击按钮后：
 1. （可选）设置 `OMBRE_API_KEY`：任何 OpenAI 兼容 API 的 key，不填则自动降级为本地关键词提取
 2. （可选）设置 `OMBRE_BASE_URL`：API 地址，支持任意 OpenAI 化地址，如 `https://api.deepseek.com/v1` / `http://123.1.1.1:7689/v1` / `http://your-ollama:11434/v1`
-3. Render 自动挂载持久化磁盘到 `/opt/render/project/src/buckets`
-4. 部署后 MCP URL：`https://<你的服务名>.onrender.com/mcp`
+3. （可选）设置 `OMBRE_MODEL`：服务商提供的准确模型 ID
+4. Render 自动挂载持久化磁盘到 `/opt/render/project/src/buckets`
+5. 部署后 MCP URL：`https://<你的服务名>.onrender.com/mcp`
 
 `render.yaml` is included. After clicking the button:
 1. (Optional) `OMBRE_API_KEY`: any OpenAI-compatible key; omit to fall back to local keyword extraction
 2. (Optional) `OMBRE_BASE_URL`: any OpenAI-compatible endpoint, e.g. `https://api.deepseek.com/v1`, `http://123.1.1.1:7689/v1`, `http://your-ollama:11434/v1`
-3. Persistent disk auto-mounts at `/opt/render/project/src/buckets`
-4. MCP URL after deploy: `https://<your-service>.onrender.com/mcp`
+3. (Optional) `OMBRE_MODEL`: exact model ID exposed by the API provider
+4. Persistent disk auto-mounts at `/opt/render/project/src/buckets`
+5. MCP URL after deploy: `https://<your-service>.onrender.com/mcp`
 
 ### Zeabur
 
@@ -253,6 +255,7 @@ $$base\_score = Importance \times activation\_count^{0.3} \times e^{-\lambda \ti
 2. **设置环境变量 / Set environment variables**（服务页面 → **Variables** 标签页）
    - `OMBRE_API_KEY`（可选）— LLM API 密钥，不填则自动降级为本地关键词提取
    - `OMBRE_BASE_URL`（可选）— API 地址，如 `https://api.deepseek.com/v1`
+   - `OMBRE_MODEL`（可选）— 服务商提供的准确模型 ID
 
    > ⚠️ **不需要**手动设置 `OMBRE_TRANSPORT` 和 `OMBRE_BUCKETS_DIR`，Dockerfile 里已经设好了默认值。Zeabur 对单阶段 Dockerfile 会自动注入控制台设置的环境变量。
    > You do **NOT** need to set `OMBRE_TRANSPORT` or `OMBRE_BUCKETS_DIR` — defaults are baked into the Dockerfile. Zeabur auto-injects dashboard env vars for single-stage Dockerfiles.
