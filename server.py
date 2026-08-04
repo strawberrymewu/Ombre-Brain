@@ -532,6 +532,73 @@ async def hold(
     return f"{action}{result_name} {','.join(domain)}"
 
 
+@mcp.tool()
+async def reclassify_uncategorized() -> str:
+    """重新分析并移动所有未分类的动态记忆桶，返回逐条处理结果。"""
+    uncategorized_dir = os.path.abspath(os.path.join(bucket_mgr.dynamic_dir, "未分类"))
+    buckets = await bucket_mgr.list_all(category="dynamic")
+    pending = [
+        bucket for bucket in buckets
+        if os.path.dirname(os.path.abspath(bucket.get("path", ""))) == uncategorized_dir
+    ]
+    result = {"total": len(pending), "classified": 0, "failed": 0, "items": []}
+
+    for bucket in pending:
+        bucket_id = bucket.get("id", "")
+        metadata = bucket.get("metadata", {})
+        name = metadata.get("name", "")
+        content = bucket.get("content", "").strip()
+        full_text = f"{name}\n{content}" if name else content
+        item = {"id": bucket_id, "name": name}
+        try:
+            analysis = await dehydrator.analyze(full_text)
+            raw_domains = analysis.get("domain", [])
+            if isinstance(raw_domains, str):
+                raw_domains = [raw_domains]
+            domains = [
+                str(value).strip()
+                for value in raw_domains
+                if str(value).strip() and str(value).strip() != "未分类"
+            ][:3]
+            if not domains:
+                fallback = dehydrator._local_analyze(full_text)
+                raw_domains = fallback.get("domain", [])
+                if isinstance(raw_domains, str):
+                    raw_domains = [raw_domains]
+                domains = [
+                    str(value).strip()
+                    for value in raw_domains
+                    if str(value).strip() and str(value).strip() != "未分类"
+                ][:3]
+            if not domains:
+                raise ValueError("分析结果没有有效主题域")
+            raw_tags = analysis.get("tags", [])
+            if isinstance(raw_tags, str):
+                raw_tags = [raw_tags]
+            tags = [str(value).strip() for value in raw_tags if str(value).strip()][:5]
+            suggested_name = str(analysis.get("suggested_name", "") or name)
+            updates = {
+                "domain": domains,
+                "tags": tags,
+                "name": suggested_name,
+                "valence": analysis.get("valence", 0.5),
+                "arousal": analysis.get("arousal", 0.3),
+            }
+            if not await bucket_mgr.update(bucket_id, **updates):
+                raise RuntimeError("写入分类结果失败")
+            if not await bucket_mgr.move_to_domain(bucket_id, domains[0]):
+                raise RuntimeError("移动分类目录失败")
+            item.update({"domain": domains, "status": "classified"})
+            result["classified"] += 1
+        except Exception as e:
+            logger.warning(f"Reclassify failed / 重新分类失败: {bucket_id}: {e}")
+            item.update({"status": "failed", "error": str(e)})
+            result["failed"] += 1
+        result["items"].append(item)
+
+    return json.dumps(result, ensure_ascii=False)
+
+
 # =============================================================
 # Tool 3: grow — Grow, fragments become memories
 # 工具 3：grow — 生长，一天的碎片长成记忆

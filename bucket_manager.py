@@ -265,6 +265,43 @@ class BucketManager:
         logger.info(f"Updated bucket / 更新记忆桶: {bucket_id}")
         return True
 
+    async def move_to_domain(self, bucket_id: str, domain: str) -> bool:
+        """
+        Move a dynamic bucket into its primary domain directory.
+        将动态记忆桶移动到其主主题域目录。
+
+        Args:
+            bucket_id: Bucket ID to move.
+            domain: Primary domain directory name.
+
+        Returns:
+            True when the bucket is already in, or was moved to, the target directory.
+        """
+        file_path = self._find_bucket_file(bucket_id)
+        dynamic_root = os.path.abspath(self.dynamic_dir)
+        if not file_path or not domain:
+            return False
+        try:
+            if os.path.commonpath([os.path.abspath(file_path), dynamic_root]) != dynamic_root:
+                return False
+            post = frontmatter.load(file_path)
+            primary_domain = sanitize_name(domain)
+            target_dir = os.path.join(self.dynamic_dir, primary_domain)
+            os.makedirs(target_dir, exist_ok=True)
+            name = sanitize_name(post.get("name", ""))
+            actual_id = post.get("id", bucket_id)
+            filename = f"{name}_{actual_id}.md" if name and name != actual_id else f"{actual_id}.md"
+            destination = safe_path(target_dir, filename)
+            if os.path.abspath(file_path) == os.path.abspath(destination):
+                return True
+            shutil.move(file_path, str(destination))
+        except Exception as e:
+            logger.error(f"Failed to move bucket / 移动记忆桶失败: {bucket_id}: {e}")
+            return False
+
+        logger.info(f"Moved bucket / 移动记忆桶: {bucket_id} → dynamic/{primary_domain}/")
+        return True
+
     # ---------------------------------------------------------
     # Wikilink injection
     # 自动添加 Obsidian 双链
