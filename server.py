@@ -832,7 +832,11 @@ async def pulse(include_archive: bool = False) -> str:
         domains = ",".join(meta.get("domain", []))
         val = meta.get("valence", 0.5)
         aro = meta.get("arousal", 0.3)
-        resolved_tag = " [已解决]" if meta.get("resolved", False) else ""
+        resolved_tag = (
+            ""
+            if meta.get("type") == "archived"
+            else " [已解决]" if meta.get("resolved", False) else ""
+        )
         lines.append(
             f"{icon} [{meta.get('name', b['id'])}]{resolved_tag} "
             f"主题:{domains} "
