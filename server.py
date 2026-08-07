@@ -36,6 +36,7 @@ import random
 import logging
 import asyncio
 import json
+import re
 import httpx
 from typing import Optional
 
