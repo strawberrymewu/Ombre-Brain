@@ -841,9 +841,14 @@ async def pulse(include_archive: bool = False) -> str:
 # Tool 6: memory_list — Structured memory list for client views
 # 工具 6：memory_list — 为客户端视图提供结构化记忆列表
 # =============================================================
+def _normalize_memory_text(content: str) -> str:
+    """Normalize escaped line breaks left by older MCP writes."""
+    return (content or "").replace(r"\r\n", "\n").replace(r"\n", "\n")
+
+
 def _memory_preview(content: str, max_length: int = 160) -> str:
     """Build a compact single-line preview for memory list responses."""
-    compact = re.sub(r"\s+", " ", content or "").strip()
+    compact = re.sub(r"\s+", " ", _normalize_memory_text(content)).strip()
     if len(compact) <= max_length:
         return compact
     return compact[:max_length].rstrip() + "…"
@@ -878,7 +883,7 @@ async def memory_list(category: str = "", include_archive: bool = True) -> str:
         tags = metadata.get("tags", [])
         if isinstance(tags, str):
             tags = [tags] if tags.strip() else []
-        content = bucket.get("content", "")
+        content = _normalize_memory_text(bucket.get("content", ""))
         items.append({
             "id": bucket.get("id", ""),
             "category": category,
