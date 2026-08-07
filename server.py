@@ -707,6 +707,7 @@ async def grow(content: str) -> str:
 @mcp.tool()
 async def trace(
     bucket_id: str,
+    content: str = "",
     name: str = "",
     domain: str = "",
     valence: float = -1,
@@ -715,9 +716,10 @@ async def trace(
     tags: str = "",
     resolved: int = -1,
     pinned: int = -1,
+    archive: bool = False,
     delete: bool = False,
 ) -> str:
-    """修改记忆元数据。resolved=1沉底/0激活,pinned=1钉选/0取消,delete=True删除。只传需改的,-1或空=不改。"""
+    """修改记忆内容/元数据；archive=True移入归档目录，delete=True删除。"""
 
     if not bucket_id or not bucket_id.strip():
         return "请提供有效的 bucket_id。"
@@ -727,12 +729,18 @@ async def trace(
         success = await bucket_mgr.delete(bucket_id)
         return f"已遗忘记忆桶: {bucket_id}" if success else f"未找到记忆桶: {bucket_id}"
 
+    if archive:
+        success = await bucket_mgr.archive(bucket_id)
+        return f"已归档记忆桶: {bucket_id}" if success else f"归档失败或未找到记忆桶: {bucket_id}"
+
     bucket = await bucket_mgr.get(bucket_id)
     if not bucket:
         return f"未找到记忆桶: {bucket_id}"
 
     # --- Collect only fields actually passed / 只收集用户实际传入的字段 ---
     updates = {}
+    if content:
+        updates["content"] = content
     if name:
         updates["name"] = name
     if domain:
@@ -807,12 +815,12 @@ async def pulse(include_archive: bool = False) -> str:
     lines = []
     for b in buckets:
         meta = b.get("metadata", {})
-        if meta.get("pinned") or meta.get("protected"):
+        if meta.get("type") == "archived":
+            icon = "🗄️"
+        elif meta.get("pinned") or meta.get("protected"):
             icon = "📌"
         elif meta.get("type") == "permanent":
             icon = "📦"
-        elif meta.get("type") == "archived":
-            icon = "🗄️"
         elif meta.get("resolved", False):
             icon = "✅"
         else:
@@ -868,12 +876,12 @@ async def memory_list(category: str = "", include_archive: bool = True) -> str:
     items = []
     for bucket in buckets:
         metadata = bucket.get("metadata", {})
-        if metadata.get("pinned") or metadata.get("protected"):
+        if metadata.get("type") == "archived":
+            category = "归档"
+        elif metadata.get("pinned") or metadata.get("protected"):
             category = "固化"
         elif metadata.get("type") == "permanent":
             category = "固化"
-        elif metadata.get("type") == "archived":
-            category = "归档"
         else:
             category = "动态"
 
