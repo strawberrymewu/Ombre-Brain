@@ -512,7 +512,10 @@ class BucketManager:
         if not query or not query.strip():
             return []
 
-        limit = limit or self.max_results
+        try:
+            limit = max(1, min(50, int(limit or self.max_results)))
+        except (TypeError, ValueError):
+            limit = self.max_results
         all_buckets = await self.list_all(include_archive=False)
 
         if not all_buckets:
@@ -610,9 +613,23 @@ class BucketManager:
             )
             * 2
         )
-        content_score = fuzz.partial_ratio(query, bucket.get("content", "")[:500]) * 1
+        content = bucket.get("content", "")[:500]
+        content_score = fuzz.partial_ratio(query, content) * 1
 
-        return (name_score + domain_score + tag_score + content_score) / (100 * 8.5)
+        # Blend fuzzy matching with token overlap so long Chinese queries do not
+        # lose to a short accidental substring match.
+        query_tokens = {token.lower() for token in jieba.lcut(query) if token.strip()}
+        searchable = " ".join([
+            str(meta.get("name", "")),
+            " ".join(str(item) for item in meta.get("domain", [])),
+            " ".join(str(item) for item in meta.get("tags", [])),
+            content,
+        ])
+        document_tokens = {token.lower() for token in jieba.lcut(searchable) if token.strip()}
+        overlap = len(query_tokens & document_tokens) / len(query_tokens) if query_tokens else 0
+
+        fuzzy_score = (name_score + domain_score + tag_score + content_score) / (100 * 8.5)
+        return min(1.0, fuzzy_score * 0.8 + overlap * 0.2)
 
     # ---------------------------------------------------------
     # Emotion resonance sub-score:

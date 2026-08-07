@@ -46,6 +46,7 @@ dehydration:
   # api_key: ""    # ⚠️ Use env var OMBRE_API_KEY instead / 请使用环境变量 OMBRE_API_KEY
   max_tokens: 1024
   temperature: 0.1
+  api_retries: 2
 
 # --- Decay parameters / 记忆衰减参数 ---
 # Simulates Ebbinghaus forgetting curve, auto-archives inactive memories

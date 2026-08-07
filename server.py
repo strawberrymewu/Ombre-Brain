@@ -98,8 +98,12 @@ import hashlib
 import time
 from starlette.responses import HTMLResponse, RedirectResponse, JSONResponse
 
-OAUTH_PASSWORD = os.environ.get("OAUTH_PASSWORD", "charlie2026")
-OAUTH_ACCESS_TOKEN = os.environ.get("OAUTH_ACCESS_TOKEN", "charlie-ombre-token-" + hashlib.md5(OAUTH_PASSWORD.encode()).hexdigest()[:16])
+OAUTH_PASSWORD = os.environ.get("OAUTH_PASSWORD")
+OAUTH_ACCESS_TOKEN = os.environ.get("OAUTH_ACCESS_TOKEN")
+if os.environ.get("OMBRE_TRANSPORT") == "streamable-http" and (not OAUTH_PASSWORD or not OAUTH_ACCESS_TOKEN):
+    raise RuntimeError("OAUTH_PASSWORD and OAUTH_ACCESS_TOKEN are required for streamable-http")
+OAUTH_PASSWORD = OAUTH_PASSWORD or "local-development-only"
+OAUTH_ACCESS_TOKEN = OAUTH_ACCESS_TOKEN or "local-development-token"
 _auth_codes = {}
 
 
@@ -532,18 +536,9 @@ async def hold(
     return f"{action}{result_name} {','.join(domain)}"
 
 
-@mcp.tool()
-async def reclassify_uncategorized() -> str:
-    """重新分析并移动所有未分类的动态记忆桶，返回逐条处理结果。"""
-    uncategorized_dir = os.path.abspath(os.path.join(bucket_mgr.dynamic_dir, "未分类"))
-    buckets = await bucket_mgr.list_all(category="dynamic")
-    pending = [
-        bucket for bucket in buckets
-        if os.path.dirname(os.path.abspath(bucket.get("path", ""))) == uncategorized_dir
-    ]
-    result = {"total": len(pending), "classified": 0, "failed": 0, "items": []}
-
-    for bucket in pending:
+async def _reclassify_bucket(bucket: dict, semaphore: asyncio.Semaphore) -> dict:
+    """Analyze and move one uncategorized bucket under a concurrency limit."""
+    async with semaphore:
         bucket_id = bucket.get("id", "")
         metadata = bucket.get("metadata", {})
         name = metadata.get("name", "")
@@ -589,13 +584,33 @@ async def reclassify_uncategorized() -> str:
             if not await bucket_mgr.move_to_domain(bucket_id, domains[0]):
                 raise RuntimeError("移动分类目录失败")
             item.update({"domain": domains, "status": "classified"})
-            result["classified"] += 1
         except Exception as e:
             logger.warning(f"Reclassify failed / 重新分类失败: {bucket_id}: {e}")
             item.update({"status": "failed", "error": str(e)})
-            result["failed"] += 1
-        result["items"].append(item)
+        return item
 
+
+@mcp.tool()
+async def reclassify_uncategorized() -> str:
+    """并发分析并移动所有未分类的动态记忆桶，返回逐条处理结果。"""
+    uncategorized_dir = os.path.abspath(os.path.join(bucket_mgr.dynamic_dir, "未分类"))
+    buckets = await bucket_mgr.list_all(category="dynamic")
+    pending = [
+        bucket for bucket in buckets
+        if os.path.dirname(os.path.abspath(bucket.get("path", ""))) == uncategorized_dir
+    ]
+    concurrency = max(1, min(8, int(config.get("reclassify_concurrency", 8))))
+    semaphore = asyncio.Semaphore(concurrency)
+    items = await asyncio.gather(
+        *[_reclassify_bucket(bucket, semaphore) for bucket in pending]
+    )
+    classified = sum(item.get("status") == "classified" for item in items)
+    result = {
+        "total": len(items),
+        "classified": classified,
+        "failed": len(items) - classified,
+        "items": items,
+    }
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -825,6 +840,14 @@ async def pulse(include_archive: bool = False) -> str:
 # Tool 6: memory_list — Structured memory list for client views
 # 工具 6：memory_list — 为客户端视图提供结构化记忆列表
 # =============================================================
+def _memory_preview(content: str, max_length: int = 160) -> str:
+    """Build a compact single-line preview for memory list responses."""
+    compact = re.sub(r"\s+", " ", content or "").strip()
+    if len(compact) <= max_length:
+        return compact
+    return compact[:max_length].rstrip() + "…"
+
+
 @mcp.tool()
 async def memory_list(category: str = "", include_archive: bool = True) -> str:
     """返回按固化、动态、归档分类的记忆正文与主题。"""
@@ -851,10 +874,22 @@ async def memory_list(category: str = "", include_archive: bool = True) -> str:
         domains = metadata.get("domain", [])
         if isinstance(domains, str):
             domains = [domains] if domains.strip() else []
+        tags = metadata.get("tags", [])
+        if isinstance(tags, str):
+            tags = [tags] if tags.strip() else []
+        content = bucket.get("content", "")
         items.append({
+            "id": bucket.get("id", ""),
             "category": category,
+            "name": str(metadata.get("name", "未命名")),
             "domains": [str(domain) for domain in domains],
-            "content": bucket.get("content", ""),
+            "tags": [str(tag) for tag in tags],
+            "preview": _memory_preview(content),
+            "content_length": len(content),
+            "importance": metadata.get("importance", 5),
+            "created": metadata.get("created", ""),
+            "last_active": metadata.get("last_active", ""),
+            "content": content,
         })
 
     return json.dumps({"items": items}, ensure_ascii=False)

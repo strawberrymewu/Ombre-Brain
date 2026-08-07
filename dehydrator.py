@@ -24,6 +24,7 @@
 
 
 import re
+import asyncio
 import json
 import logging
 from collections import Counter
@@ -156,6 +157,7 @@ class Dehydrator:
         self.base_url = dehy_cfg.get("base_url", "https://api.deepseek.com/v1")
         self.max_tokens = dehy_cfg.get("max_tokens", 1024)
         self.temperature = dehy_cfg.get("temperature", 0.1)
+        self.api_retries = max(0, min(3, int(dehy_cfg.get("api_retries", 2))))
 
         # --- API availability / 是否有可用的 API ---
         self.api_available = bool(self.api_key)
@@ -173,6 +175,16 @@ class Dehydrator:
             )
         else:
             self.client = None
+
+    async def _api_call(self, operation):
+        """Retry transient provider failures before falling back locally."""
+        for attempt in range(self.api_retries + 1):
+            try:
+                return await operation()
+            except Exception:
+                if attempt >= self.api_retries:
+                    raise
+                await asyncio.sleep(0.25 * (2 ** attempt))
 
     # ---------------------------------------------------------
     # Dehydrate: compress raw content into concise summary
@@ -253,7 +265,7 @@ class Dehydrator:
         Call LLM API for intelligent dehydration (via OpenAI-compatible client).
         调用 LLM API 执行智能脱水。
         """
-        response = await self.client.chat.completions.create(
+        response = await self._api_call(lambda: self.client.chat.completions.create(
             model=self.model,
             messages=[
                 {"role": "system", "content": DEHYDRATE_PROMPT},
@@ -261,7 +273,7 @@ class Dehydrator:
             ],
             max_tokens=self.max_tokens,
             temperature=self.temperature,
-        )
+        ))
         if not response.choices:
             return ""
         return response.choices[0].message.content or ""
@@ -451,7 +463,7 @@ class Dehydrator:
         Call LLM API for content analysis / tagging.
         调用 LLM API 执行内容分析打标。
         """
-        response = await self.client.chat.completions.create(
+        response = await self._api_call(lambda: self.client.chat.completions.create(
             model=self.model,
             messages=[
                 {"role": "system", "content": ANALYZE_PROMPT},
@@ -459,7 +471,7 @@ class Dehydrator:
             ],
             max_tokens=256,
             temperature=0.1,
-        )
+        ))
         if not response.choices:
             return self._default_analysis()
         raw = response.choices[0].message.content or ""
@@ -675,7 +687,7 @@ class Dehydrator:
         Call LLM API for diary organization.
         调用 LLM API 执行日记整理。
         """
-        response = await self.client.chat.completions.create(
+        response = await self._api_call(lambda: self.client.chat.completions.create(
             model=self.model,
             messages=[
                 {"role": "system", "content": DIGEST_PROMPT},
@@ -683,7 +695,7 @@ class Dehydrator:
             ],
             max_tokens=2048,
             temperature=0.2,
-        )
+        ))
         if not response.choices:
             return []
         raw = response.choices[0].message.content or ""
