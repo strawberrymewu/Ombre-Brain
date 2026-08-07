@@ -321,7 +321,7 @@ When connecting via tunnel, ensure:
 |---|---|---|
 | 网页版无法连接隧道 URL / Web can't connect to tunnel URL | 服务以 stdio 模式运行 / Server in stdio mode | 设置 `OMBRE_TRANSPORT=streamable-http` 后重启 |
 | 网页版无法连接隧道 URL / Web can't connect to tunnel URL | 旧版 server.py 缺少 CORS 头 / Missing CORS headers | 拉取最新代码，CORS 已内置 / Pull latest — CORS is now built-in |
-| `/health` 返回 200 但 MCP 连不上 / `/health` 200 but MCP fails | 路径错误 / Wrong path | MCP URL 末尾必须是 `/mcp` 而非 `/` |
+| `/health` 返回 200 但 MCP 连不上 / `/health` 200 but MCP fails | 路径错误 / Wrong path | 使用 `/mcp` 或 `/mcp/`；两种写法均受支持 |
 | 隧道连接偶尔断开 / Tunnel disconnects intermittently | Cloudflare Tunnel 空闲超时 / Idle timeout | 保活 ping 已内置，若仍断开可缩短隧道超时配置 |
 
 ---

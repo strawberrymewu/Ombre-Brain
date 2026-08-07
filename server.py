@@ -950,8 +950,21 @@ if __name__ == "__main__":
         else:
             _app = mcp.sse_app()
 
-        # Middleware: fix http:// -> https:// in redirect Location headers (Railway TLS proxy)
+        # Middleware: accept both /mcp and /mcp/ before FastMCP route matching.
+        # Claude.ai may normalize a pasted URL and remove the trailing slash.
         from starlette.types import ASGIApp, Scope, Receive, Send as StarletteSend
+
+        class McpPathCompatibilityMiddleware:
+            """将没有尾部斜杠的 MCP URL 规范化为 FastMCP 的标准路径。"""
+            def __init__(self, app: ASGIApp):
+                self.app = app
+
+            async def __call__(self, scope: Scope, receive: Receive, send: StarletteSend):
+                if scope["type"] == "http" and scope.get("path") == "/mcp":
+                    scope = {**scope, "path": "/mcp/", "raw_path": b"/mcp/"}
+                await self.app(scope, receive, send)
+
+        # Middleware: fix http:// -> https:// in redirect Location headers (Railway TLS proxy)
 
         class HttpsRedirectFixMiddleware:
             """Railway 在 TLS 代理后，内部重定向 Location 头是 http://，强制改成 https://"""
@@ -976,6 +989,7 @@ if __name__ == "__main__":
 
                 await self.app(scope, receive, send_with_https)
 
+        _app.add_middleware(McpPathCompatibilityMiddleware)
         _app.add_middleware(HttpsRedirectFixMiddleware)
         _app.add_middleware(
             CORSMiddleware,
