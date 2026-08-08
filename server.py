@@ -49,7 +49,7 @@ from mcp.server.fastmcp import FastMCP
 from bucket_manager import BucketManager
 from dehydrator import Dehydrator
 from decay_engine import DecayEngine
-from utils import load_config, setup_logging
+from utils import load_config, now_iso, setup_logging
 
 # --- Load config & init logging / 加载配置 & 初始化日志 ---
 config = load_config()
@@ -346,6 +346,53 @@ async def _merge_or_create(
 # With args: search by keyword + emotion coordinates
 # 有参数：按关键词+情感坐标检索记忆
 # =============================================================
+def _memory_reference(bucket: dict, preview: str, score: float, surface_type: str = None) -> dict:
+    """Return metadata only; never copy Ombre bucket正文 into the reference DTO."""
+    metadata = bucket.get("metadata", {})
+    state = metadata.get("state")
+    if state not in {"active", "fading", "sleeping", "archived", "unknown"}:
+        state = "archived" if metadata.get("type") == "archived" else "active"
+    try:
+        surface_count = max(0, int(metadata.get("surface_count", metadata.get("activation_count", 0)) or 0))
+    except (TypeError, ValueError):
+        surface_count = 0
+    try:
+        safe_score = round(float(score), 5)
+    except (TypeError, ValueError):
+        safe_score = 0.0
+    reference = {
+        "id": bucket.get("id", ""),
+        "kind": metadata.get("kind", "memory"),
+        "preview": str(preview or "")[:2000],
+        "score": safe_score,
+        "state": state,
+        "source": metadata.get("source", "ombre_brain"),
+        "scope": metadata.get("scope", "user"),
+        "confidence": metadata.get("confidence"),
+        "weight": metadata.get("weight", score),
+        "pinned": bool(metadata.get("pinned", False)),
+        "surface_count": surface_count,
+        "last_surfaced_at": metadata.get("last_surfaced_at") or now_iso(),
+        "source_session_id": metadata.get("source_session_id"),
+        "source_message_ids": metadata.get("source_message_ids", []),
+        "source_hash": metadata.get("source_hash"),
+        "valid_until": metadata.get("valid_until"),
+    }
+    if surface_type:
+        reference["surface_type"] = surface_type
+    return reference
+
+
+def _memory_response(references: list[dict], query: str = None, status: str = "available") -> str:
+    return json.dumps({
+        "version": 1,
+        "status": status,
+        "query": query or None,
+        "generated_at": now_iso(),
+        "references": references,
+    }, ensure_ascii=False)
+
+
 @mcp.tool()
 async def breath(
     query: Optional[str] = None,
@@ -365,7 +412,7 @@ async def breath(
             all_buckets = await bucket_mgr.list_all(include_archive=False)
         except Exception as e:
             logger.error(f"Failed to list buckets for surfacing: {e}")
-            return "记忆系统暂时无法访问。"
+            return _memory_response([], query, "unavailable")
 
         pinned_buckets = [
             b for b in all_buckets
@@ -377,7 +424,7 @@ async def breath(
                 summary = await dehydrator.dehydrate(b["content"], b["metadata"])
             except Exception:
                 summary = b["content"][:150]
-            pinned_results.append(f"📌 [核心准则] {summary}")
+            pinned_results.append(_memory_reference(b, summary, 999.0, "pinned"))
 
         unresolved = [
             b for b in all_buckets
@@ -404,17 +451,12 @@ async def breath(
             except Exception:
                 pass
             score = decay_engine.calculate_score(b["metadata"])
-            dynamic_results.append(f"[权重:{score:.2f}] {summary}")
+            dynamic_results.append(_memory_reference(b, summary, score, "weighted"))
 
         if not pinned_results and not dynamic_results:
-            return "权重池平静，没有需要处理的记忆。"
+            return _memory_response([], query, "empty")
 
-        parts = []
-        if pinned_results:
-            parts.append("=== 核心准则 ===\n" + "\n---\n".join(pinned_results))
-        if dynamic_results:
-            parts.append("=== 浮现记忆 ===\n" + "\n---\n".join(dynamic_results))
-        return "\n\n".join(parts)
+        return _memory_response(pinned_results + dynamic_results, query)
 
     domain_filter = [d.strip() for d in domain.split(",") if d.strip()] or None
     q_valence = valence if 0 <= valence <= 1 else None
@@ -423,7 +465,7 @@ async def breath(
     try:
         matches = await bucket_mgr.search(
             query,
-            limit=max_results,
+            limit=max(1, min(50, int(max_results))),
             domain_filter=domain_filter,
             query_valence=q_valence,
             query_arousal=q_arousal,
@@ -442,7 +484,8 @@ async def breath(
             await bucket_mgr.touch(bucket["id"])
         except Exception:
             pass
-        results.append(summary)
+        score = bucket.get("score", decay_engine.calculate_score(bucket["metadata"]))
+        results.append(_memory_reference(bucket, summary, score, "query"))
 
     if len(matches) < 3 and random.random() < 0.4:
         try:
@@ -461,15 +504,15 @@ async def breath(
                         summary = await dehydrator.dehydrate(b["content"], b["metadata"])
                     except Exception:
                         summary = b["content"][:150]
-                    drift_results.append(f"[surface_type: random]\n{summary}")
-                results.append("--- 忽然想起来 ---\n" + "\n---\n".join(drift_results))
+                    drift_results.append(_memory_reference(b, summary, decay_engine.calculate_score(b["metadata"]), "random"))
+                results.extend(drift_results)
         except Exception as e:
             logger.warning(f"Random surfacing failed: {e}")
 
     if not results:
-        return "未找到相关记忆。"
+        return _memory_response([], query, "empty")
 
-    return "\n---\n".join(results)
+    return _memory_response(results, query)
 
 @mcp.tool()
 async def hold(
